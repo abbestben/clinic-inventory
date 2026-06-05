@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>資產盤點系統 v1.2</title>
+<title>資產盤點系統 v1.3</title>
 <script src="config.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   :root {
@@ -337,7 +337,7 @@
     <div class="app-header" style="all:unset; display:flex; flex-direction:column;">
       <span style="font-size:17px; font-weight:600; color:#fff;">資產盤點系統</span>
       <span style="font-size:12px; opacity:0.75; color:#fff;" id="header-clinic">請先選擇診所</span>
-      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v1.2</span>
+      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v1.3</span>
     </div>
   </div>
 </div>
@@ -395,7 +395,7 @@
     </div>
 
     <div id="scanner-container">
-      <div id="quagga-target"></div>
+      <div id="scanner-target"></div>
       <div class="scan-overlay">
         <div class="scan-frame"></div>
         <div class="scan-line"></div>
@@ -637,43 +637,46 @@ function gotoScreen(name) {
   }
 }
 
-// === SCANNER ===
+// === SCANNER（ZXing）===
+let zxingReader = null;
+
 function startScanner() {
   if (scannerRunning) return;
-  const target = document.getElementById('quagga-target');
-  target.innerHTML = '';
-  Quagga.init({
-    inputStream: {
-      type: 'LiveStream',
-      target: target,
-      constraints: {
-        facingMode: 'environment',
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    },
-    decoder: { readers: ['code_128_reader', 'code_39_reader', 'code_39_vin_reader'] },
-    locate: true,
-    numOfWorkers: navigator.hardwareConcurrency > 2 ? 2 : 1,
-  }, err => {
-    if (err) { console.warn('Quagga init error', err); return; }
-    Quagga.start();
-    scannerRunning = true;
-  });
-  Quagga.offDetected();
-  Quagga.onDetected(result => {
-    const code = result.codeResult.code;
+  const target = document.getElementById('scanner-target');
+  target.innerHTML = '<video id="zxing-video" style="width:100%; display:block;"></video>';
+  const video = document.getElementById('zxing-video');
+
+  const hints = new Map();
+  const formats = [
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.CODE_93,
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.ITF,
+  ];
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+  zxingReader = new ZXing.BrowserMultiFormatReader(hints);
+  zxingReader.decodeFromVideoDevice(null, video, (result, err) => {
+    if (!result) return;
+    const code = result.getText();
     const now = Date.now();
     if (code === lastCode && now - lastCodeTime < 2000) return;
     lastCode = code;
     lastCodeTime = now;
     processCode(code);
+  }).then(() => {
+    scannerRunning = true;
+  }).catch(err => {
+    console.warn('ZXing init error', err);
   });
 }
 
 function stopScanner() {
   if (!scannerRunning) return;
-  Quagga.stop();
+  if (zxingReader) { zxingReader.reset(); zxingReader = null; }
   scannerRunning = false;
 }
 
@@ -723,31 +726,29 @@ function initPhotoScan() {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
 
-      // 用 Quagga 解析靜態圖片
-      Quagga.decodeSingle({
-        decoder: { readers: ['code_128_reader', 'code_39_reader', 'code_39_vin_reader'] },
-        locate: true,
-        src: canvas.toDataURL('image/jpeg', 0.92)
-      }, result => {
-        if (result && result.codeResult) {
-          const code = result.codeResult.code;
-          // 畫紅框標示找到的條碼位置
-          if (result.box) {
-            const ctx2 = canvas.getContext('2d');
-            ctx2.strokeStyle = '#ef4444';
-            ctx2.lineWidth = 3;
-            ctx2.beginPath();
-            result.box.forEach((p, i) => i === 0 ? ctx2.moveTo(p[0], p[1]) : ctx2.lineTo(p[0], p[1]));
-            ctx2.closePath();
-            ctx2.stroke();
-          }
+      // 用 ZXing 解析靜態圖片
+      const hints2 = new Map();
+      hints2.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.CODE_93,
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.ITF,
+      ]);
+      hints2.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      const photoReader = new ZXing.BrowserMultiFormatReader(hints2);
+      photoReader.decodeFromImageUrl(canvas.toDataURL('image/jpeg', 0.95))
+        .then(result => {
+          const code = result.getText();
           status.textContent = '';
           processCode(code);
-        } else {
-          status.textContent = '❌ 未能辨識條碼，請重拍（光線充足、條碼清晰）';
-        }
-        input.value = '';
-      });
+          input.value = '';
+        })
+        .catch(() => {
+          status.textContent = '❌ 未能辨識條碼，請重拍（光線充足、對準條碼）';
+          input.value = '';
+        });
     };
     img.src = url;
   });
