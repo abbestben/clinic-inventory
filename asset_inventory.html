@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>資產盤點系統 v1.3</title>
+<title>資產盤點系統 v1.4</title>
 <script src="config.js"></script>
-<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   :root {
@@ -337,7 +337,7 @@
     <div class="app-header" style="all:unset; display:flex; flex-direction:column;">
       <span style="font-size:17px; font-weight:600; color:#fff;">資產盤點系統</span>
       <span style="font-size:12px; opacity:0.75; color:#fff;" id="header-clinic">請先選擇診所</span>
-      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v1.3</span>
+      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v1.4</span>
     </div>
   </div>
 </div>
@@ -642,6 +642,11 @@ let zxingReader = null;
 
 function startScanner() {
   if (scannerRunning) return;
+  if (typeof ZXing === 'undefined') {
+    showToast('❌ 掃碼引擎載入失敗，請重新整理頁面');
+    console.error('ZXing not loaded');
+    return;
+  }
   const target = document.getElementById('scanner-target');
   target.innerHTML = '<video id="zxing-video" style="width:100%; display:block;"></video>';
   const video = document.getElementById('zxing-video');
