@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>資產盤點系統</title>
+<title>資產盤點系統 v1.2</title>
 <script src="config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -337,7 +337,7 @@
     <div class="app-header" style="all:unset; display:flex; flex-direction:column;">
       <span style="font-size:17px; font-weight:600; color:#fff;">資產盤點系統</span>
       <span style="font-size:12px; opacity:0.75; color:#fff;" id="header-clinic">請先選擇診所</span>
-      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version"></span>
+      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v1.2</span>
     </div>
   </div>
 </div>
@@ -529,7 +529,7 @@ let currentFilter = 'all';
 // === 初始化 ===
 window.addEventListener('DOMContentLoaded', () => {
   initClinics();
-  document.getElementById('header-version').textContent = VERSION;
+  if (typeof VERSION !== 'undefined') document.getElementById('header-version').textContent = VERSION;
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('inv-date').value = today;
 
@@ -652,7 +652,7 @@ function startScanner() {
         height: { ideal: 720 }
       }
     },
-    decoder: { readers: ['code_128_reader'] },
+    decoder: { readers: ['code_128_reader', 'code_39_reader', 'code_39_vin_reader'] },
     locate: true,
     numOfWorkers: navigator.hardwareConcurrency > 2 ? 2 : 1,
   }, err => {
@@ -725,7 +725,7 @@ function initPhotoScan() {
 
       // 用 Quagga 解析靜態圖片
       Quagga.decodeSingle({
-        decoder: { readers: ['code_128_reader'] },
+        decoder: { readers: ['code_128_reader', 'code_39_reader', 'code_39_vin_reader'] },
         locate: true,
         src: canvas.toDataURL('image/jpeg', 0.92)
       }, result => {
