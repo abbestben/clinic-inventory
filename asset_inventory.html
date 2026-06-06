@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>資產盤點系統 v1.4</title>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --primary: #1a5fa8;
+    --primary-light: #e8f0fb;
+    --success: #1a7a4a;
+    --success-light: #e6f4ed;
+    --danger: #b91c1c;
+    --danger-light: #fef2f2;
+    --warn: #b45309;
+    --warn-light: #fffbeb;
+    --bg: #f4f6fa;
+    --card: #ffffff;
+    --text: #1a1d23;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --radius: 14px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Noto Sans TC', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  /* === HEADER === */
+  .app-header {
+    background: var(--primary);
+    color: #fff;
+    padding: 16px 20px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .app-header .logo {
+    width: 36px; height: 36px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .app-header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.02em; }
+  .app-header .sub { font-size: 12px; opacity: 0.75; }
+
+  /* === SCREENS === */
+  .screen { display: none; padding: 16px; max-width: 480px; margin: 0 auto; }
+  .screen.active { display: block; }
+
+  /* === CARD === */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 14px;
+    border: 1px solid var(--border);
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+  }
+
+  /* === FORM ELEMENTS === */
+  select, input[type="text"] {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+    font-family: inherit;
+  }
+  select:focus, input[type="text"]:focus { border-color: var(--primary); }
+  label { font-size: 13px; color: var(--muted); margin-bottom: 6px; display: block; }
+
+  /* === BUTTONS === */
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%;
+    padding: 14px;
+    border-radius: var(--radius-sm);
+    font-size: 15px; font-weight: 600;
+    border: none; cursor: pointer;
+    transition: all 0.18s;
+    font-family: inherit;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:disabled { background: #9fb5d6; cursor: not-allowed; transform: none; }
+  .btn-success { background: var(--success); color: #fff; }
+  .btn-outline {
+    background: transparent;
+    color: var(--primary);
+    border: 1.5px solid var(--primary);
+  }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-sm {
+    width: auto; padding: 7px 14px;
+    font-size: 13px; font-weight: 500;
+    border-radius: 6px;
+  }
+  .btn-icon { font-size: 18px; }
+  .btn-group { display: flex; gap: 10px; }
+
+  /* === STATUS BADGE === */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+  }
+  .badge-ok { background: var(--success-light); color: var(--success); }
+  .badge-miss { background: var(--warn-light); color: var(--warn); }
+  .badge-extra { background: var(--danger-light); color: var(--danger); }
+  .badge-total { background: var(--primary-light); color: var(--primary); }
+
+  /* === STATS BAR === */
+  .stats-bar {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; margin-bottom: 14px;
+  }
+  .stat-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 8px;
+    text-align: center;
+  }
+  .stat-num { font-size: 22px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .stat-box.ok .stat-num { color: var(--success); }
+  .stat-box.miss .stat-num { color: var(--warn); }
+  .stat-box.extra .stat-num { color: var(--danger); }
+
+  /* === SCANNER === */
+  #scanner-container {
+    position: relative;
+    width: 100%;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 4/3;
+  }
+  #scanner-container video { width: 100%; display: block; }
+  #scanner-container canvas { display: none; }
+  .scan-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .scan-frame {
+    width: 72%; height: 40%;
+    border: 2.5px solid rgba(255,255,255,0.85);
+    border-radius: 10px;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,0.38);
+  }
+  .scan-line {
+    position: absolute;
+    top: 30%; left: 14%;
+    width: 72%;
+    height: 2px;
+    background: #4ade80;
+    animation: scanline 2s linear infinite;
+    border-radius: 1px;
+    box-shadow: 0 0 6px #4ade80;
+  }
+  @keyframes scanline {
+    0% { top: 30%; }
+    50% { top: 57%; }
+    100% { top: 30%; }
+  }
+  .scan-hint {
+    position: absolute; bottom: 10px;
+    width: 100%; text-align: center;
+    color: rgba(255,255,255,0.82);
+    font-size: 12px;
+  }
+  .scan-mode-toggle {
+    display: flex; gap: 0; margin-bottom: 10px;
+    border: 1.5px solid var(--primary); border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .scan-mode-btn {
+    flex: 1; padding: 9px 6px; font-size: 13px; font-weight: 600;
+    border: none; background: transparent; color: var(--primary);
+    cursor: pointer; font-family: inherit; transition: all 0.15s;
+  }
+  .scan-mode-btn.active { background: var(--primary); color: #fff; }
+  #photo-canvas {
+    width: 100%; border-radius: var(--radius-sm); display: none;
+    background: #000;
+  }
+  #photo-input { display: none; }
+  .photo-btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .manual-input-row {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .manual-input-row input { flex: 1; }
+
+  /* === RESULT FLASH === */
+  .scan-result-flash {
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500;
+    margin-top: 10px;
+    display: none;
+    align-items: center; gap: 8px;
+  }
+  .scan-result-flash.found { background: var(--success-light); color: var(--success); display: flex; }
+  .scan-result-flash.notfound { background: var(--danger-light); color: var(--danger); display: flex; }
+  .scan-result-flash.duplicate { background: var(--warn-light); color: var(--warn); display: flex; }
+
+  /* === ASSET LIST === */
+  .asset-list { list-style: none; }
+  .asset-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .asset-item:last-child { border-bottom: none; }
+  .asset-status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    margin-top: 5px; flex-shrink: 0;
+  }
+  .dot-ok { background: var(--success); }
+  .dot-miss { background: var(--warn); }
+  .dot-extra { background: var(--danger); }
+  .asset-name { font-size: 14px; font-weight: 500; }
+  .asset-code { font-size: 12px; color: var(--muted); font-family: monospace; }
+  .asset-loc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* === FILTER TABS === */
+  .filter-tabs {
+    display: flex; gap: 6px;
+    margin-bottom: 12px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .filter-tabs::-webkit-scrollbar { display: none; }
+  .tab-btn {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px; font-weight: 500;
+    border: 1.5px solid var(--border);
+    background: var(--card);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+  /* === TOAST === */
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #1a1d23; color: #fff;
+    padding: 11px 22px; border-radius: 30px;
+    font-size: 14px; z-index: 9999;
+    opacity: 0; transition: opacity 0.3s;
+    pointer-events: none; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+
+  /* === LOADING === */
+  .loading-wrap {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; padding: 30px;
+    color: var(--muted); font-size: 14px;
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* === MISC === */
+  .section-sep { height: 1px; background: var(--border); margin: 14px 0; }
+  .text-muted { color: var(--muted); font-size: 13px; }
+  .mt-8 { margin-top: 8px; }
+  .mt-12 { margin-top: 12px; }
+  .progress-wrap { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .progress-bar { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.4s; }
+  .email-row { display: flex; gap: 8px; }
+  .email-row input { flex: 1; }
+
+  /* nav bottom */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    display: flex;
+    z-index: 99;
+  }
+  .nav-btn {
+    flex: 1; padding: 10px 4px;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    font-size: 11px; color: var(--muted);
+    border: none; background: none; cursor: pointer;
+    font-family: inherit;
+  }
+  .nav-btn .nav-icon { font-size: 22px; }
+  .nav-btn.active { color: var(--primary); }
+  .screen-wrap { padding-bottom: 62px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div class="logo">🏥</div>
+  <div>
+    <div class="app-header" style="all:unset; display:flex; flex-direction:column;">
+      <span style="font-size:17px; font-weight:600; color:#fff;">資產盤點系統</span>
+      <span style="font-size:12px; opacity:0.75; color:#fff;" id="header-clinic">請先選擇診所</span>
+      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v1.4</span>
+    </div>
+  </div>
+</div>
+
+<div class="screen-wrap">
+
+<!-- ===== SCREEN: SETUP ===== -->
+<div class="screen active" id="screen-setup">
+  <div style="padding-top:8px;"></div>
+  <div class="card">
+    <div class="card-title">📋 基本設定</div>
+    <label>診所名稱</label>
+    <select id="clinic-select">
+      <option value="">— 請選擇診所 —</option>
+    </select>
+    <div id="csv-status" class="mt-8 text-muted" style="display:none;"></div>
+  </div>
+
+  <div class="card" id="operator-card" style="display:none;">
+    <div class="card-title">👤 承辦人員</div>
+    <label>承辦人姓名</label>
+    <input type="text" id="operator-name" placeholder="請輸入姓名">
+    <label style="margin-top:12px;">盤點日期</label>
+    <input type="text" id="inv-date" id="inv-date">
+  </div>
+
+  <div id="start-btn-wrap" class="hidden">
+    <button class="btn btn-primary" id="btn-start-scan">
+      <span>📦</span> 開始掃碼盤點
+    </button>
+  </div>
+</div>
+
+<!-- ===== SCREEN: SCAN ===== -->
+<div class="screen" id="screen-scan">
+  <div class="stats-bar" id="stats-bar">
+    <div class="stat-box ok">
+      <div class="stat-num" id="stat-ok">0</div>
+      <div class="stat-label">已盤到</div>
+    </div>
+    <div class="stat-box miss">
+      <div class="stat-num" id="stat-miss">0</div>
+      <div class="stat-label">未盤到</div>
+    </div>
+    <div class="stat-box extra">
+      <div class="stat-num" id="stat-extra">0</div>
+      <div class="stat-label">多餘</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="scan-mode-toggle">
+      <button class="scan-mode-btn active" id="mode-live" onclick="switchMode('live')">📹 即時掃碼</button>
+      <button class="scan-mode-btn" id="mode-photo" onclick="switchMode('photo')">📷 拍照掃碼</button>
+    </div>
+
+    <div id="scanner-container">
+      <div id="scanner-target"></div>
+      <div class="scan-overlay">
+        <div class="scan-frame"></div>
+        <div class="scan-line"></div>
+      </div>
+      <div class="scan-hint">將條碼對準綠線</div>
+    </div>
+
+    <div id="photo-mode-wrap" style="display:none;">
+      <canvas id="photo-canvas"></canvas>
+      <input type="file" id="photo-input" accept="image/*" capture="environment">
+      <div class="photo-btn-row">
+        <button class="btn btn-primary" id="btn-take-photo" style="flex:1;">📷 拍照掃碼</button>
+        <button class="btn btn-outline btn-sm" id="btn-retake" style="display:none;">重拍</button>
+      </div>
+      <div id="photo-status" class="text-muted mt-8" style="font-size:13px; text-align:center;"></div>
+    </div>
+
+    <div class="manual-input-row">
+      <input type="text" id="manual-code" placeholder="手動輸入編號" inputmode="text" autocomplete="off">
+      <button class="btn btn-outline btn-sm" id="btn-manual-add">確認</button>
+    </div>
+    <div id="scan-flash" class="scan-result-flash"></div>
+  </div>
+
+  <button class="btn btn-outline mt-8" id="btn-go-result">
+    📊 查看盤點結果
+  </button>
+</div>
+
+<!-- ===== SCREEN: RESULT ===== -->
+<div class="screen" id="screen-result">
+  <div class="card">
+    <div class="card-title">盤點進度</div>
+    <div id="result-clinic-name" style="font-weight:600; font-size:16px;"></div>
+    <div id="result-date" class="text-muted mt-8"></div>
+    <div class="progress-wrap mt-8">
+      <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+    </div>
+    <div id="progress-text" class="text-muted mt-8" style="font-size:13px;"></div>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat-box ok">
+      <div class="stat-num" id="r-stat-ok">0</div>
+      <div class="stat-label">✅ 已盤到</div>
+    </div>
+    <div class="stat-box miss">
+      <div class="stat-num" id="r-stat-miss">0</div>
+      <div class="stat-label">⚠️ 未盤到</div>
+    </div>
+    <div class="stat-box extra">
+      <div class="stat-num" id="r-stat-extra">0</div>
+      <div class="stat-label">❓ 多餘</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">資產清單</div>
+    <div class="filter-tabs">
+      <button class="tab-btn active" onclick="filterList('all')">全部</button>
+      <button class="tab-btn" onclick="filterList('ok')">已盤到</button>
+      <button class="tab-btn" onclick="filterList('miss')">未盤到</button>
+      <button class="tab-btn" onclick="filterList('extra')">多餘</button>
+    </div>
+    <ul class="asset-list" id="asset-list"></ul>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📤 送出 / 存檔</div>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+      <div>
+        <div style="font-size:13px; color:var(--muted);">收件信箱（總公司承辦人）</div>
+        <div style="font-size:14px; font-weight:500;" id="display-email"></div>
+      </div>
+      <button class="btn btn-primary btn-sm" id="btn-send-email">📧 寄送</button>
+    </div>
+    <div id="email-status" class="mt-8 text-muted" style="font-size:13px;"></div>
+    <div class="section-sep"></div>
+    <div class="btn-group">
+      <button class="btn btn-outline" id="btn-export-csv">⬇ 下載 CSV</button>
+      <button class="btn btn-outline" id="btn-back-scan">🔙 繼續盤點</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- screen-wrap -->
+
+<!-- BOTTOM NAV -->
+<div class="bottom-nav">
+  <button class="nav-btn active" id="nav-setup" onclick="gotoScreen('setup')">
+    <span class="nav-icon">🏠</span>設定
+  </button>
+  <button class="nav-btn" id="nav-scan" onclick="gotoScreen('scan')">
+    <span class="nav-icon">📷</span>掃碼
+  </button>
+  <button class="nav-btn" id="nav-result" onclick="gotoScreen('result')">
+    <span class="nav-icon">📊</span>結果
+  </button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// 診所清單與信箱設定請見 config.js
+// =============================================
+
+// CSV 欄位對應（欄位順序如有變動請在此調整）
+// 您的欄位：管理 部門 部門 存放 編號 資產名稱 數量 單位 備註
+const COL = {
+  manage:   0,  // 管理
+  dept1:    1,  // 部門
+  dept2:    2,  // 部門
+  location: 3,  // 存放
+  code:     4,  // 編號（條碼）
+  name:     5,  // 資產名稱
+  qty:      6,  // 數量
+  unit:     7,  // 單位
+  note:     8   // 備註
+};
+// =============================================
+
+let assets = [];        // 從 CSV 載入的資產清單
+let scanned = {};       // 已掃到的 { code: count }
+let extraScanned = [];  // 不在清單上的條碼
+let currentClinic = null;
+let scannerRunning = false;
+let lastCode = '';
+let lastCodeTime = 0;
+let currentFilter = 'all';
+
+// === 初始化 ===
+window.addEventListener('DOMContentLoaded', () => {
+  initClinics();
+  if (typeof VERSION !== 'undefined') document.getElementById('header-version').textContent = VERSION;
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('inv-date').value = today;
+
+  document.getElementById('clinic-select').addEventListener('change', onClinicChange);
+  document.getElementById('operator-name').addEventListener('input', checkStartReady);
+  document.getElementById('btn-start-scan').addEventListener('click', () => gotoScreen('scan'));
+  document.getElementById('btn-go-result').addEventListener('click', () => gotoScreen('result'));
+  document.getElementById('btn-back-scan').addEventListener('click', () => gotoScreen('scan'));
+  document.getElementById('btn-manual-add').addEventListener('click', doManualAdd);
+  initPhotoScan();
+  document.getElementById('manual-code').addEventListener('keydown', e => { if(e.key==='Enter') doManualAdd(); });
+  document.getElementById('display-email').textContent = TO_EMAIL;
+  document.getElementById('btn-send-email').addEventListener('click', sendEmail);
+  document.getElementById('btn-export-csv').addEventListener('click', exportCsv);
+});
+
+function initClinics() {
+  const sel = document.getElementById('clinic-select');
+  CLINICS.forEach((c, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+}
+
+
+// === 診所選擇 ===
+async function onClinicChange() {
+  const idx = document.getElementById('clinic-select').value;
+  if (idx === '') {
+    document.getElementById('operator-card').style.display = 'none';
+    document.getElementById('csv-status').style.display = 'none';
+    document.getElementById('start-btn-wrap').classList.add('hidden');
+    return;
+  }
+  currentClinic = CLINICS[parseInt(idx)];
+  document.getElementById('operator-card').style.display = 'block';
+  document.getElementById('csv-status').style.display = 'block';
+  document.getElementById('csv-status').innerHTML = '<div class="loading-wrap" style="padding:12px;"><div class="spinner"></div><span>載入資產表中…</span></div>';
+  try {
+    await loadCsv(currentClinic.csvUrl);
+    document.getElementById('csv-status').innerHTML =
+      `<span style="color:var(--success);">✅ 載入成功：共 <strong>${assets.length}</strong> 筆資產</span>`;
+    checkStartReady();
+  } catch(e) {
+    document.getElementById('csv-status').innerHTML =
+      `<span style="color:var(--danger);">❌ CSV 載入失敗：${e.message}<br><small>請確認 Google Sheets 已設為「任何人可檢視」</small></span>`;
+  }
+}
+
+function loadCsv(url) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(url, {
+      download: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data;
+        // 跳過標題列
+        const dataRows = rows.filter((r, i) => i > 0 && r[COL.code] && r[COL.code].toString().trim());
+        assets = dataRows.map(r => ({
+          manage:   (r[COL.manage]   || '').trim(),
+          dept1:    (r[COL.dept1]    || '').trim(),
+          dept2:    (r[COL.dept2]    || '').trim(),
+          location: (r[COL.location] || '').trim(),
+          code:     (r[COL.code]     || '').toString().trim(),
+          name:     (r[COL.name]     || '').trim(),
+          qty:      parseInt(r[COL.qty]) || 1,
+          unit:     (r[COL.unit]     || '').trim(),
+          note:     (r[COL.note]     || '').trim(),
+        }));
+        scanned = {};
+        extraScanned = [];
+        resolve();
+      },
+      error: (err) => reject(new Error(err.message))
+    });
+  });
+}
+
+function checkStartReady() {
+  const ready = assets.length > 0 && document.getElementById('operator-name').value.trim();
+  document.getElementById('start-btn-wrap').classList.toggle('hidden', !ready);
+}
+
+// === 換頁 ===
+function gotoScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+  document.getElementById('nav-' + name).classList.add('active');
+
+  if (name === 'scan') {
+    document.getElementById('header-clinic').textContent = currentClinic ? currentClinic.name : '未選擇';
+    startScanner();
+    updateStats();
+  } else {
+    stopScanner();
+  }
+  if (name === 'result') {
+    renderResult();
+  }
+  if (name === 'setup') {
+    stopScanner();
+  }
+}
+
+// === SCANNER（ZXing）===
+let zxingReader = null;
+
+function startScanner() {
+  if (scannerRunning) return;
+  if (typeof ZXing === 'undefined') {
+    showToast('❌ 掃碼引擎載入失敗，請重新整理頁面');
+    console.error('ZXing not loaded');
+    return;
+  }
+  const target = document.getElementById('scanner-target');
+  target.innerHTML = '<video id="zxing-video" style="width:100%; display:block;"></video>';
+  const video = document.getElementById('zxing-video');
+
+  const hints = new Map();
+  const formats = [
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.CODE_93,
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.ITF,
+  ];
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+  zxingReader = new ZXing.BrowserMultiFormatReader(hints);
+  zxingReader.decodeFromVideoDevice(null, video, (result, err) => {
+    if (!result) return;
+    const code = result.getText();
+    const now = Date.now();
+    if (code === lastCode && now - lastCodeTime < 2000) return;
+    lastCode = code;
+    lastCodeTime = now;
+    processCode(code);
+  }).then(() => {
+    scannerRunning = true;
+  }).catch(err => {
+    console.warn('ZXing init error', err);
+  });
+}
+
+function stopScanner() {
+  if (!scannerRunning) return;
+  if (zxingReader) { zxingReader.reset(); zxingReader = null; }
+  scannerRunning = false;
+}
+
+// === 切換掃碼模式 ===
+function switchMode(mode) {
+  document.getElementById('mode-live').classList.toggle('active', mode === 'live');
+  document.getElementById('mode-photo').classList.toggle('active', mode === 'photo');
+  document.getElementById('scanner-container').style.display = mode === 'live' ? 'block' : 'none';
+  document.getElementById('photo-mode-wrap').style.display = mode === 'photo' ? 'block' : 'none';
+  if (mode === 'live') {
+    startScanner();
+  } else {
+    stopScanner();
+    document.getElementById('photo-status').textContent = '按「拍照掃碼」對準條碼後拍攝';
+    document.getElementById('photo-canvas').style.display = 'none';
+    document.getElementById('btn-retake').style.display = 'none';
+  }
+}
+
+// === 拍照掃碼 ===
+function initPhotoScan() {
+  const btnTake = document.getElementById('btn-take-photo');
+  const input = document.getElementById('photo-input');
+  const canvas = document.getElementById('photo-canvas');
+  const status = document.getElementById('photo-status');
+  const btnRetake = document.getElementById('btn-retake');
+
+  btnTake.addEventListener('click', () => input.click());
+
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    status.textContent = '⏳ 分析中…';
+    btnTake.style.display = 'none';
+    btnRetake.style.display = 'inline-flex';
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      // 縮放到合理大小以加快解析
+      const maxW = 1200;
+      const scale = img.width > maxW ? maxW / img.width : 1;
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.style.display = 'block';
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+
+      // 用 ZXing 解析靜態圖片
+      const hints2 = new Map();
+      hints2.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.CODE_93,
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.ITF,
+      ]);
+      hints2.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      const photoReader = new ZXing.BrowserMultiFormatReader(hints2);
+      photoReader.decodeFromImageUrl(canvas.toDataURL('image/jpeg', 0.95))
+        .then(result => {
+          const code = result.getText();
+          status.textContent = '';
+          processCode(code);
+          input.value = '';
+        })
+        .catch(() => {
+          status.textContent = '❌ 未能辨識條碼，請重拍（光線充足、對準條碼）';
+          input.value = '';
+        });
+    };
+    img.src = url;
+  });
+
+  btnRetake.addEventListener('click', () => {
+    canvas.style.display = 'none';
+    btnTake.style.display = 'flex';
+    btnRetake.style.display = 'none';
+    status.textContent = '按「拍照掃碼」對準條碼後拍攝';
+    input.value = '';
+  });
+}
+
+function doManualAdd() {
+  const val = document.getElementById('manual-code').value.trim();
+  if (!val) return;
+  processCode(val);
+  document.getElementById('manual-code').value = '';
+}
+
+function processCode(code) {
+  const asset = assets.find(a => a.code === code);
+  const flash = document.getElementById('scan-flash');
+  flash.className = 'scan-result-flash';
+  if (!asset) {
+    // 多餘 / 不在清單
+    if (!extraScanned.includes(code)) extraScanned.push(code);
+    flash.className = 'scan-result-flash notfound';
+    flash.innerHTML = `❌ <span>編號 <strong>${code}</strong> 不在資產清單中（已記錄）</span>`;
+    vibrate([100,50,100]);
+  } else {
+    if (scanned[code]) {
+      flash.className = 'scan-result-flash duplicate';
+      flash.innerHTML = `⚠️ <span><strong>${asset.name}</strong>（${code}）已掃過</span>`;
+      vibrate([50]);
+    } else {
+      scanned[code] = 1;
+      flash.className = 'scan-result-flash found';
+      flash.innerHTML = `✅ <span><strong>${asset.name}</strong>（${asset.location || '—'}）</span>`;
+      vibrate([60]);
+    }
+  }
+  updateStats();
+  setTimeout(() => { flash.className = 'scan-result-flash'; }, 3000);
+}
+
+function vibrate(pattern) {
+  if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
+function updateStats() {
+  const scannedCount = Object.keys(scanned).length;
+  const missCount = assets.filter(a => !scanned[a.code]).length;
+  const extraCount = extraScanned.length;
+  document.getElementById('stat-ok').textContent = scannedCount;
+  document.getElementById('stat-miss').textContent = missCount;
+  document.getElementById('stat-extra').textContent = extraCount;
+}
+
+// === RESULT ===
+function renderResult() {
+  const scannedCount = Object.keys(scanned).length;
+  const missCount = assets.filter(a => !scanned[a.code]).length;
+  const extraCount = extraScanned.length;
+  const total = assets.length;
+  const pct = total > 0 ? Math.round(scannedCount / total * 100) : 0;
+
+  document.getElementById('result-clinic-name').textContent = currentClinic ? currentClinic.name : '';
+  document.getElementById('result-date').textContent =
+    `承辦人：${document.getElementById('operator-name').value || '—'}　日期：${document.getElementById('inv-date').value}`;
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = `已盤 ${scannedCount} / 共 ${total} 筆（${pct}%）`;
+
+  document.getElementById('r-stat-ok').textContent = scannedCount;
+  document.getElementById('r-stat-miss').textContent = missCount;
+  document.getElementById('r-stat-extra').textContent = extraCount;
+
+  renderList(currentFilter);
+}
+
+function filterList(f) {
+  currentFilter = f;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderList(f);
+}
+
+function renderList(f) {
+  const ul = document.getElementById('asset-list');
+  ul.innerHTML = '';
+
+  let items = [];
+  assets.forEach(a => {
+    const status = scanned[a.code] ? 'ok' : 'miss';
+    if (f === 'all' || f === status) {
+      items.push({ ...a, status });
+    }
+  });
+  if (f === 'all' || f === 'extra') {
+    extraScanned.forEach(code => {
+      items.push({ code, name: '（不在清單）', location: '', status: 'extra' });
+    });
+  }
+
+  if (items.length === 0) {
+    ul.innerHTML = '<li class="text-muted" style="padding:12px 0;">此分類無資料</li>';
+    return;
+  }
+  items.forEach(a => {
+    const li = document.createElement('li');
+    li.className = 'asset-item';
+    const dotClass = a.status === 'ok' ? 'dot-ok' : a.status === 'miss' ? 'dot-miss' : 'dot-extra';
+    const badge = a.status === 'ok'
+      ? '<span class="badge badge-ok">已盤到</span>'
+      : a.status === 'miss'
+        ? '<span class="badge badge-miss">未盤到</span>'
+        : '<span class="badge badge-extra">多餘</span>';
+    li.innerHTML = `
+      <div class="asset-status-dot ${dotClass}"></div>
+      <div style="flex:1; min-width:0;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+          <span class="asset-name" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${a.name}</span>
+          ${badge}
+        </div>
+        <div class="asset-code">${a.code}</div>
+        ${a.location ? `<div class="asset-loc">📍 ${a.location}${a.dept1 ? ' ／ ' + a.dept1 : ''}</div>` : ''}
+      </div>`;
+    ul.appendChild(li);
+  });
+}
+
+// === 匯出 CSV ===
+function exportCsv() {
+  const clinic = currentClinic ? currentClinic.name : '';
+  const operator = document.getElementById('operator-name').value;
+  const date = document.getElementById('inv-date').value;
+  const rows = [['盤點狀態','管理','部門','部門','存放','編號','資產名稱','數量','單位','備註','承辦人','日期','診所']];
+  assets.forEach(a => {
+    const status = scanned[a.code] ? '已盤到' : '未盤到';
+    rows.push([status, a.manage, a.dept1, a.dept2, a.location, a.code, a.name, a.qty, a.unit, a.note, operator, date, clinic]);
+  });
+  extraScanned.forEach(code => {
+    rows.push(['多餘（不在清單）','','','','',code,'','','','', operator, date, clinic]);
+  });
+  const csv = '\uFEFF' + rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `盤點_${clinic}_${date}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ CSV 已下載');
+}
+
+// === EMAIL（mailto 直接開手機郵件 App）===
+function sendEmail() {
+  const to = TO_EMAIL;
+  if (!to) { showToast('請先設定收件信箱'); return; }
+  const clinic = currentClinic ? currentClinic.name : '';
+  const operator = document.getElementById('operator-name').value;
+  const date = document.getElementById('inv-date').value;
+  const scannedCount = Object.keys(scanned).length;
+  const missCount = assets.filter(a => !scanned[a.code]).length;
+  const extraCount = extraScanned.length;
+  const total = assets.length;
+  const pct = total > 0 ? Math.round(scannedCount / total * 100) : 0;
+
+  const missList = assets.filter(a => !scanned[a.code])
+    .map(a => `  [未盤到] ${a.code}  ${a.name}  ${a.location || ''}`)
+    .join('\r\n');
+  const extraList = extraScanned
+    .map(c => `  [多餘] ${c}`)
+    .join('\r\n');
+
+  const body =
+    `【資產盤點報告】\r\n`
+  + `診所：${clinic}\r\n`
+  + `承辦人：${operator}\r\n`
+  + `盤點日期：${date}\r\n`
+  + `--------------------\r\n`
+  + `總資產數：${total} 筆\r\n`
+  + `已盤到：${scannedCount} 筆（${pct}%）\r\n`
+  + `未盤到：${missCount} 筆\r\n`
+  + `多餘條碼：${extraCount} 筆\r\n`
+  + (missList ? `--------------------\r\n未盤到清單：\r\n${missList}\r\n` : '')
+  + (extraList ? `--------------------\r\n多餘條碼：\r\n${extraList}\r\n` : '');
+
+  const subject = encodeURIComponent(`【資產盤點】${clinic} ${date}`);
+  const bodyEnc = encodeURIComponent(body);
+  const mailto = `mailto:${to}?subject=${subject}&body=${bodyEnc}`;
+
+  if (mailto.length > 8000) {
+    document.getElementById('email-status').textContent =
+      '⚠️ 資料量較大，建議先「下載 CSV」再附檔寄送。';
+  }
+  window.location.href = mailto;
+  document.getElementById('email-status').textContent =
+    `✅ 郵件 App 已開啟，確認後請按送出（收件人：${to}）`;
+  showToast('📧 郵件 App 已開啟');
+}
+
+// === TOAST ===
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+</script>
+</body>
+</html>
