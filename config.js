@@ -9,10 +9,7 @@ const TO_EMAIL = "ab.best.ben@gmail.com";
 // 診所清單
 // csvUrl 格式：https://docs.google.com/spreadsheets/d/【試算表ID】/export?format=csv
 const CLINICS = [
-  { name: '台北總院', csvUrl: 'https://docs.google.com/spreadsheets/d/SHEET_ID_1/export?format=csv' },
-  { name: '板橋分院', csvUrl: 'https://docs.google.com/spreadsheets/d/SHEET_ID_2/export?format=csv' },
-  { name: '新莊診所', csvUrl: 'https://docs.google.com/spreadsheets/d/SHEET_ID_3/export?format=csv' },
-  { name: '三重診所', csvUrl: 'https://docs.google.com/spreadsheets/d/SHEET_ID_4/export?format=csv' },
-  { name: '中和診所', csvUrl: 'https://docs.google.com/spreadsheets/d/SHEET_ID_5/export?format=csv' },
+  { name: '南港醫學', csvUrl: 'https://docs.google.com/spreadsheets/d/1iojvGVFmGOaDRJOyo46PP_8gM2MtVIUZuHRSU6sZ_MQ/export?format=csv&gid=477055744' },
+ 
   // ... 其餘診所依序填入
 ];
