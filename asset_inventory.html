@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>資產盤點系統 v1.4</title>
+<title>資產盤點系統 v2.0</title>
 <script src="config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   :root {
@@ -160,10 +160,15 @@
     border-radius: var(--radius-sm);
     overflow: hidden;
     background: #000;
-    aspect-ratio: 4/3;
+    height: 300px;
   }
-  #scanner-container video { width: 100%; display: block; }
+  #scanner-container video {
+    width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
   #scanner-container canvas { display: none; }
+  #scanner-target { height: 300px; }
+  #scanner-target > * { height: 300px !important; }
   .scan-overlay {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
@@ -337,7 +342,7 @@
     <div class="app-header" style="all:unset; display:flex; flex-direction:column;">
       <span style="font-size:17px; font-weight:600; color:#fff;">資產盤點系統</span>
       <span style="font-size:12px; opacity:0.75; color:#fff;" id="header-clinic">請先選擇診所</span>
-      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v1.4</span>
+      <span style="font-size:11px; opacity:0.5; color:#fff;" id="header-version">v2.0</span>
     </div>
   </div>
 </div>
@@ -396,15 +401,11 @@
 
     <div id="scanner-container">
       <div id="scanner-target"></div>
-      <div class="scan-overlay">
-        <div class="scan-frame"></div>
-        <div class="scan-line"></div>
-      </div>
-      <div class="scan-hint">將條碼對準綠線</div>
+
     </div>
 
     <div id="photo-mode-wrap" style="display:none;">
-      <canvas id="photo-canvas"></canvas>
+      <div id="photo-scan-region" style="display:none;"></div>
       <input type="file" id="photo-input" accept="image/*" capture="environment">
       <div class="photo-btn-row">
         <button class="btn btn-primary" id="btn-take-photo" style="flex:1;">📷 拍照掃碼</button>
@@ -505,15 +506,15 @@
 // CSV 欄位對應（欄位順序如有變動請在此調整）
 // 您的欄位：管理 部門 部門 存放 編號 資產名稱 數量 單位 備註
 const COL = {
-  manage:   0,  // 管理
-  dept1:    1,  // 部門
-  dept2:    2,  // 部門
-  location: 3,  // 存放
-  code:     4,  // 編號（條碼）
-  name:     5,  // 資產名稱
-  qty:      6,  // 數量
-  unit:     7,  // 單位
-  note:     8   // 備註
+  manage:   1,  // 管理（B欄，A欄為序號）
+  dept1:    2,  // 部門
+  dept2:    3,  // 部門
+  location: 4,  // 存放
+  code:     5,  // 編號（條碼）
+  name:     6,  // 資產名稱
+  qty:      7,  // 數量
+  unit:     8,  // 單位
+  note:     9   // 備註
 };
 // =============================================
 
@@ -637,51 +638,57 @@ function gotoScreen(name) {
   }
 }
 
-// === SCANNER（ZXing）===
-let zxingReader = null;
+// === SCANNER（Html5Qrcode）===
+let html5Scanner = null;
 
 function startScanner() {
   if (scannerRunning) return;
-  if (typeof ZXing === 'undefined') {
+  if (typeof Html5Qrcode === 'undefined') {
     showToast('❌ 掃碼引擎載入失敗，請重新整理頁面');
-    console.error('ZXing not loaded');
     return;
   }
   const target = document.getElementById('scanner-target');
-  target.innerHTML = '<video id="zxing-video" style="width:100%; display:block;"></video>';
-  const video = document.getElementById('zxing-video');
+  target.innerHTML = '';
 
-  const hints = new Map();
-  const formats = [
-    ZXing.BarcodeFormat.CODE_128,
-    ZXing.BarcodeFormat.CODE_39,
-    ZXing.BarcodeFormat.CODE_93,
-    ZXing.BarcodeFormat.EAN_13,
-    ZXing.BarcodeFormat.EAN_8,
-    ZXing.BarcodeFormat.ITF,
-  ];
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  // 支援 Code 39 的格式清單
+  const fmts = [];
+  const sf = Html5QrcodeSupportedFormats;
+  [sf.CODE_128, sf.CODE_39, sf.CODE_93, sf.EAN_13, sf.EAN_8, sf.ITF].forEach(f => {
+    if (f !== undefined) fmts.push(f);
+  });
 
-  zxingReader = new ZXing.BrowserMultiFormatReader(hints);
-  zxingReader.decodeFromVideoDevice(null, video, (result, err) => {
-    if (!result) return;
-    const code = result.getText();
-    const now = Date.now();
-    if (code === lastCode && now - lastCodeTime < 2000) return;
-    lastCode = code;
-    lastCodeTime = now;
-    processCode(code);
-  }).then(() => {
+  html5Scanner = new Html5Qrcode('scanner-target');
+  const config = fmts.length > 0
+    ? { fps: 10, qrbox: { width: 280, height: 120 }, formatsToSupport: fmts }
+    : { fps: 10, qrbox: { width: 280, height: 120 } };
+
+  html5Scanner.start(
+    { facingMode: 'environment' },
+    config,
+    (code) => {
+      const now = Date.now();
+      if (code === lastCode && now - lastCodeTime < 2000) return;
+      lastCode = code;
+      lastCodeTime = now;
+      processCode(code);
+    },
+    () => {}
+  ).then(() => {
     scannerRunning = true;
   }).catch(err => {
-    console.warn('ZXing init error', err);
+    console.warn('Html5Qrcode start error', err);
+    showToast('❌ 相機啟動失敗，請確認已允許相機權限');
   });
 }
 
 function stopScanner() {
   if (!scannerRunning) return;
-  if (zxingReader) { zxingReader.reset(); zxingReader = null; }
+  if (html5Scanner) {
+    html5Scanner.stop().then(() => {
+      html5Scanner.clear();
+      html5Scanner = null;
+    }).catch(() => {});
+  }
   scannerRunning = false;
 }
 
@@ -701,12 +708,34 @@ function switchMode(mode) {
   }
 }
 
+// === 圖片壓縮 ===
+function compressImage(file, maxWidth) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+      }, 'image/jpeg', 0.92);
+    };
+    img.onerror = () => resolve(file); // 壓縮失敗就用原檔
+    img.src = url;
+  });
+}
+
 // === 拍照掃碼 ===
 function initPhotoScan() {
   const btnTake = document.getElementById('btn-take-photo');
-  const input = document.getElementById('photo-input');
-  const canvas = document.getElementById('photo-canvas');
-  const status = document.getElementById('photo-status');
+  const input   = document.getElementById('photo-input');
+  const status  = document.getElementById('photo-status');
   const btnRetake = document.getElementById('btn-retake');
 
   btnTake.addEventListener('click', () => input.click());
@@ -714,59 +743,62 @@ function initPhotoScan() {
   input.addEventListener('change', async () => {
     const file = input.files[0];
     if (!file) return;
-    status.textContent = '⏳ 分析中…';
+    status.textContent = '⏳ 處理圖片中…';
     btnTake.style.display = 'none';
     btnRetake.style.display = 'inline-flex';
 
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      // 縮放到合理大小以加快解析
-      const maxW = 1200;
-      const scale = img.width > maxW ? maxW / img.width : 1;
-      canvas.width  = Math.round(img.width  * scale);
-      canvas.height = Math.round(img.height * scale);
-      canvas.style.display = 'block';
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
+    // 壓縮圖片到合適大小再辨識
+    const compressedFile = await compressImage(file, 1200);
 
-      // 用 ZXing 解析靜態圖片
-      const hints2 = new Map();
-      hints2.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.CODE_128,
-        ZXing.BarcodeFormat.CODE_39,
-        ZXing.BarcodeFormat.CODE_93,
-        ZXing.BarcodeFormat.EAN_13,
-        ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.ITF,
-      ]);
-      hints2.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      const photoReader = new ZXing.BrowserMultiFormatReader(hints2);
-      photoReader.decodeFromImageUrl(canvas.toDataURL('image/jpeg', 0.95))
-        .then(result => {
-          const code = result.getText();
-          status.textContent = '';
-          processCode(code);
-          input.value = '';
-        })
-        .catch(() => {
-          status.textContent = '❌ 未能辨識條碼，請重拍（光線充足、對準條碼）';
-          input.value = '';
+    // 先試瀏覽器原生 BarcodeDetector（最準）
+    if ('BarcodeDetector' in window) {
+      try {
+        status.textContent = '⏳ 使用原生辨識中…';
+        const detector = new BarcodeDetector({
+          formats: ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'itf', 'codabar']
         });
-    };
-    img.src = url;
+        const bitmap = await createImageBitmap(compressedFile);
+        const results = await detector.detect(bitmap);
+        if (results.length > 0) {
+          status.textContent = '';
+          processCode(results[0].rawValue);
+          input.value = '';
+          return;
+        }
+        status.textContent = '⏳ 原生辨識未果，嘗試備用引擎…';
+      } catch(e) {
+        status.textContent = '⏳ 原生辨識失敗，嘗試備用引擎…';
+        console.warn('BarcodeDetector error', e);
+      }
+    } else {
+      status.textContent = '⏳ 備用引擎辨識中…';
+    }
+
+    // 備用：Html5Qrcode scanFileV2
+    // 每次重建 region div 避免衝突
+    const region = document.getElementById('photo-scan-region');
+    region.innerHTML = '';
+    try {
+      const photoScanner = new Html5Qrcode('photo-scan-region', { verbose: false });
+      const result = await photoScanner.scanFileV2(compressedFile, true);
+      status.textContent = '';
+      processCode(result.decodedText);
+      input.value = '';
+      try { photoScanner.clear(); } catch(e) {}
+    } catch(e) {
+      console.warn('Html5Qrcode error', e);
+      status.textContent = `❌ 未能辨識（${e.message || '請重拍，條碼盡量填滿畫面'}）`;
+      input.value = '';
+    }
   });
 
   btnRetake.addEventListener('click', () => {
-    canvas.style.display = 'none';
     btnTake.style.display = 'flex';
     btnRetake.style.display = 'none';
     status.textContent = '按「拍照掃碼」對準條碼後拍攝';
     input.value = '';
   });
 }
-
 function doManualAdd() {
   const val = document.getElementById('manual-code').value.trim();
   if (!val) return;
